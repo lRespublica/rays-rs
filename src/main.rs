@@ -7,6 +7,8 @@ use std::io::Write;
 
 use std::fs::File;
 
+use rays_rs::color::{Color, RGB};
+
 const PROG_NAME: &str = "rays-rs";
 
 fn main() -> std::io::Result<()> {
@@ -27,11 +29,10 @@ fn main() -> std::io::Result<()> {
 
     for j in (0..ny).rev() {
         for i in 0..nx {
-            let r: i32 = ((i as f32 / nx as f32) * 255.0).round() as i32;
-            let g: i32 = ((j as f32 / ny as f32) * 255.0).round() as i32;
-            let b = 51;
+            let color: Color = Color::new(i as f32 / nx as f32, j as f32 / ny as f32, 0.25);
+            let color: RGB = color.to_rgb();
 
-            write!(&mut w, "{r} {g} {b}\n")?;
+            write!(&mut w, "{} {} {}\n", color.r(), color.g(), color.b())?;
         }
     }
 
