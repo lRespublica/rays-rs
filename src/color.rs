@@ -12,4 +12,14 @@ impl Color {
 
         self.map(to_u8)
     }
+
+    pub fn r(self) -> f32 {self.0}
+    pub fn g(self) -> f32 {self.1}
+    pub fn b(self) -> f32 {self.2}
+}
+
+impl RGB {
+    pub fn r(self) -> u8 {self.0}
+    pub fn g(self) -> u8 {self.1}
+    pub fn b(self) -> u8 {self.2}
 }
