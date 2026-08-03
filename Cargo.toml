@@ -3,4 +3,13 @@ name = "rays-rs"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+name = "rays_rs"
+path = "src/lib.rs"
+
+[[bin]]
+name = "rays"
+path = "src/main.rs"
+
 [dependencies]
+bytemuck = { version = "1", features = ["derive"] }
