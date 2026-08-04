@@ -1,4 +1,4 @@
-use strength_reduce::StrengthReducedUsize;
+use strength_reduce::StrengthReducedU32;
 
 use crate::color::{Color, RGB};
 
@@ -15,22 +15,22 @@ impl Pixel for RGB   {}
 
 #[derive(Debug, Clone)]
 pub struct Image<T: Pixel> {
-    width:  usize,
-    height: usize,
+    width:  u32,
+    height: u32,
     pixels: Vec<T>,
 }
 
 impl<T: Pixel> Image<T> {
-    pub fn width(&self)  -> usize {self.width}
-    pub fn height(&self) -> usize {self.height}
+    pub fn width(&self)  -> u32 {self.width}
+    pub fn height(&self) -> u32 {self.height}
     pub fn raw(&self)    -> &[T]  {&self.pixels}
 
-    pub fn from_fn<F: Fn(usize, usize) -> T> (width: usize, height: usize, f: F) -> Image<T> {
-        let w = StrengthReducedUsize::new(width);
+    pub fn from_fn<F: Fn(u32, u32) -> T> (width: u32, height: u32, f: F) -> Image<T> {
+        let w = StrengthReducedU32::new(width);
 
         let pixels = (0..width*height)
             .map(|i| {
-                let (y, x) = StrengthReducedUsize::div_rem(i, w);
+                let (y, x) = StrengthReducedU32::div_rem(i, w);
                 f (x, y)
             }).collect();
 
