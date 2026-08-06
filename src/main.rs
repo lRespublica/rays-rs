@@ -9,7 +9,7 @@ use std::fs::File;
 use rays_rs::color::{Color};
 use rays_rs::image::Image;
 
-use rays_rs::format::ppm;
+use rays_rs::format::png;
 
 const PROG_NAME: &str = "rays-rs";
 
@@ -33,7 +33,7 @@ fn main() -> std::io::Result<()> {
               0.25)
         );
 
-    ppm::write(&img.to_rgb(), ppm::Encoding::Binary, &mut w)?;
+    png::write(&img.to_rgb(), &mut w)?;
 
     Ok(())
 }
