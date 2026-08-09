@@ -14,5 +14,4 @@ path = "src/main.rs"
 [dependencies]
 bytemuck = { version = "1", features = ["derive"] }
 strength_reduce = "0.2"
-miniz_oxide = "0.8"
 rayon = "1"
