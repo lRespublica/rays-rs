@@ -1,5 +1,7 @@
+use bitstream_io::{BitWriter, BitWrite, LittleEndian};
+
 pub fn to_zlib(data: &[u8]) -> Vec<u8> {
-    let mut deflated = to_deflate_blocks(data);
+    let mut deflated = to_deflate_block_type1(data);
 
     deflated.splice(0..0, [0x78, 0x01]); // push front zlib signature
     deflated.extend_from_slice(&(adler32(data)).to_be_bytes()); // append adler32
@@ -7,7 +9,7 @@ pub fn to_zlib(data: &[u8]) -> Vec<u8> {
     deflated
 }
 
-fn to_deflate_blocks(data: &[u8]) -> Vec<u8> {
+pub fn to_deflate_blocks(data: &[u8]) -> Vec<u8> {
     const MAX_STORED: usize = 65535; // 2^16 - 1
 
     let nblocks = data.len().div_ceil(MAX_STORED).max(1);
@@ -25,7 +27,26 @@ fn to_deflate_blocks(data: &[u8]) -> Vec<u8> {
     out
 }
 
-/* INTERNAL */
+pub fn to_deflate_block_type1(data: &[u8]) -> Vec<u8> {
+    let mut w = BitWriter::endian(Vec::new(), LittleEndian);
+
+    w.write_bit(true).unwrap();
+    w.write::<2, u8>(0b01).unwrap();
+
+    for &b in data {
+        let code = FIXED_CODES[b as usize];
+        w.write_var::<u16>(code.1.into(), code.0).unwrap();
+    }
+
+    let eob = FIXED_CODES[256];
+    w.write_var::<u16>(eob.1.into(), eob.0).unwrap();
+
+    w.byte_align().unwrap();
+
+    w.into_writer()
+}
+
+/* HUFFMAN PART */
 
 const MAX_BITS: usize = 15;
 
