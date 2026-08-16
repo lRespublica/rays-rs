@@ -29,7 +29,14 @@ fn to_deflate_blocks(data: &[u8]) -> Vec<u8> {
 
 const MAX_BITS: usize = 15;
 
-pub const fn huffman_from_lenghts<const N: usize> (table: &mut [(u16, u8); N]) {
+const fn rev(code: u16, len: u8) -> u16 {
+    assert!(len as usize <= MAX_BITS && len != 0);
+    code.reverse_bits() >> (16 - len)
+}
+
+// MAKES REVERSED CODES
+// to work with single LittleEndian bit writer.
+pub const fn huffman_from_lengths<const N: usize> (table: &mut [(u16, u8); N]) {
     let mut i = 0;
     let mut bl_count:  [usize; MAX_BITS+1] = [0; MAX_BITS+1];
     let mut next_code: [u16;   MAX_BITS+1] = [0; MAX_BITS+1];
@@ -52,13 +59,14 @@ pub const fn huffman_from_lenghts<const N: usize> (table: &mut [(u16, u8); N]) {
     i = 0;
 
     while i < N {
-        table[i].0 = next_code[table[i].1 as usize];
+        table[i].0 = rev(next_code[table[i].1 as usize], table[i].1);
         next_code[table[i].1 as usize] = next_code[table[i].1 as usize] + 1;
         i = i + 1;
     };
 
 }
 
+// CONTAINS REVERSED CODES
 pub const FIXED_CODES: [(u16, u8); 288] = {
     let mut table: [(u16, u8); 288] = [(0, 0); 288];
     let mut i: usize = 0;
@@ -74,7 +82,7 @@ pub const FIXED_CODES: [(u16, u8); 288] = {
         i = i+1;
     };
 
-    huffman_from_lenghts(&mut table);
+    huffman_from_lengths(&mut table);
 
     table
 };
