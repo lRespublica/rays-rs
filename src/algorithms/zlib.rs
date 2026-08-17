@@ -46,6 +46,55 @@ pub fn to_deflate_block_type1(data: &[u8]) -> Vec<u8> {
     w.into_writer()
 }
 
+/* LZSS PART */
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum LzssElem {
+    Literal(u8),
+    Reference {length: u16, distance: u16},
+}
+
+pub fn apply_lzss(data: &[u8]) -> Vec<LzssElem> {
+    use LzssElem::*;
+
+    const BWIN_LEN: usize = 32768;
+    const FWIN_LEN: usize = 258;
+
+    let mut output: Vec<LzssElem> = Vec::new();
+
+    let mut i = 0;
+    while i < data.len() {
+        let mut best_match: LzssElem = Literal(data[i]);
+
+        for j in (i.saturating_sub(BWIN_LEN)..i).rev() {
+            let mut len = 0;
+            for (k, l) in (j..j+FWIN_LEN).zip(i..i+FWIN_LEN) {
+                if l >= data.len() {break};
+                if data[k] != data[l] {break};
+
+                len += 1;
+            }
+
+            if len >= 3 {
+                let cur_match = Reference {length: len as u16, distance: (i - j) as u16};
+                match best_match {
+                    Literal(_) => best_match = cur_match,
+                    Reference {length: len_o, distance: _} => if len_o < len {best_match = cur_match},
+                }
+            }
+        }
+
+        output.push(best_match);
+
+        match best_match {
+            Literal(_) => i += 1,
+            Reference {length: len, distance: _} => i += len as usize,
+        }
+    }
+
+    output
+}
+
 /* HUFFMAN PART */
 
 const MAX_BITS: usize = 15;
