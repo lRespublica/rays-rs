@@ -3,4 +3,5 @@ Cargo.lock
 *.swp
 *.ppm
 *.png
+*.bin
 examples/dbg.rs
