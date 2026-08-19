@@ -33,10 +33,9 @@ pub fn to_deflate_block_type1(data: &[u8]) -> Vec<u8> {
     w.write_bit(true).unwrap();
     w.write::<2, u8>(0b01).unwrap();
 
-    for &b in data {
-        let code = FIXED_CODES[b as usize];
-        w.write_var::<u16>(code.1.into(), code.0).unwrap();
-    }
+    let stream = apply_lzss(data);
+
+    encode_lzss_stream(&mut w, FIXED_CODES, &stream);
 
     let eob = FIXED_CODES[256];
     w.write_var::<u16>(eob.1.into(), eob.0).unwrap();
@@ -136,8 +135,66 @@ pub const fn huffman_from_lengths<const N: usize> (table: &mut [(u16, u8); N]) {
 
 }
 
+/* LZSS + HUFFMAN */
+pub fn encode_lzss_stream(w: &mut BitWriter<Vec<u8>, LittleEndian>, table: Htable, stream: &[LzssElem]) {
+    use LzssElem::*;
+
+    for e in stream {
+        match e {
+            Literal(c) => {
+                let code = table[*c as usize];
+                w.write_var::<u16>(code.1.into(), code.0).unwrap();
+            },
+            Reference {length: len, distance: dist} => {
+                let (c, extra_len, extra_value) = huffman_code_for_len(*len);
+                let code = table[c as usize];
+
+                w.write_var::<u16>(code.1.into(), code.0).unwrap();
+                if extra_len > 0 {w.write_var::<u16>(extra_len as u32, extra_value).unwrap()};
+
+                let (d, extra_len, extra_value) = huffman_code_for_dist(*dist);
+
+                w.write_var::<u16>(5, rev(d, 5)).unwrap();
+                if extra_len > 0 {w.write_var::<u16>(extra_len as u32, extra_value).unwrap()};
+            },
+        }
+    }
+}
+
+/* HUFFMAN TABLE */
+type Code = u16;
+type BitLen = u8;
+
+type Htable = [(Code, BitLen); 288];
+
+type ExtraBits = u16;
+pub fn huffman_code_for_len(len: u16) -> (Code, BitLen, ExtraBits) {
+    assert!(len >= 3 && len <= 258);
+
+    if len <= 10 {(256 + len - 2, 0, 0)}
+    else if len <= 18  {(265 + (len - 11) /2,  1, (len - 11)  % 2)}
+    else if len <= 34  {(269 + (len - 19) /4,  2, (len - 19)  % 4)}
+    else if len <= 66  {(273 + (len - 35) /8,  3, (len - 35)  % 8)}
+    else if len <= 130 {(277 + (len - 67) /16, 4, (len - 67)  % 16)}
+    else if len <= 257 {(281 + (len - 131)/32, 5, (len - 131) % 32)}
+    else {(285, 0, 0)}
+}
+
+pub fn huffman_code_for_dist(dist: u16) -> (Code, BitLen, ExtraBits) {
+    assert!(dist >= 1 && dist <= 32768);
+
+    if dist <= 4 {return (dist - 1, 0, 0);}
+
+    let d      = dist - 1;                        // turn dist to 10xx/11xx
+    let n: u16 = (15 - d.leading_zeros()) as u16;
+    let extra  = (n - 1) as u8;
+    let code   = 2 * n + ((d >> extra) & 1);
+
+    (code, extra, d & ((1 << extra) - 1))
+}
+
 // CONTAINS REVERSED CODES
-pub const FIXED_CODES: [(u16, u8); 288] = {
+pub const FIXED_CODES: Htable = {
     let mut table: [(u16, u8); 288] = [(0, 0); 288];
     let mut i: usize = 0;
 
