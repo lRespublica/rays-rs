@@ -229,7 +229,7 @@ impl Distance {
 }
 
 // CONTAINS REVERSED CODES
-pub const FIXED_CODES: Htable = {
+pub static FIXED_CODES: Htable = {
     let mut ll:         <LL       as Symbol>::Table = [(0, 0); 288];
     let mut distance:   <Distance as Symbol>::Table = [(0, 5); 32];
     let mut i: usize = 0;
