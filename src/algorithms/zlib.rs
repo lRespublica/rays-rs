@@ -30,10 +30,10 @@ pub fn to_deflate_blocks(data: &[u8]) -> Vec<u8> {
 }
 
 pub fn to_deflate_block_type1(data: &[u8]) -> Vec<u8> {
-    let mut encoder = Encoder::new(Vec::<u8>::new(), &FIXED_CODES);
+    let mut encoder = Encoder::new(Vec::<u8>::new());
     let stream      = apply_lzss(data);
 
-    encoder.block(true, BlockType::Fixed, &stream).unwrap();
+    encoder.fixed_block(true, &stream).unwrap();
     encoder.finish().unwrap()
 }
 
@@ -215,9 +215,8 @@ pub static FIXED_CODES: Htable = {
 };
 
 /* DEFLATE ENCODER */
-pub struct Encoder<'t, W: io::Write> {
-    w:     BitWriter<W, LittleEndian>,
-    table: &'t Htable,
+pub struct Encoder<W: io::Write> {
+    w: BitWriter<W, LittleEndian>,
 }
 
 #[repr(u8)]
@@ -228,24 +227,20 @@ pub enum BlockType {
     Dynamic = 0b10,
 }
 
-impl <'t, W: io::Write> Encoder<'t, W> {
-    pub fn new(w: W, table: &'t Htable) -> Self {
-        Encoder {w: BitWriter::endian(w, LittleEndian), table}
+struct HuffmanBlock<'w, 't, W: io::Write> {
+    w:     &'w mut BitWriter<W, LittleEndian>,
+    table: &'t Htable,
+}
+
+impl <W: io::Write> Encoder<W> {
+    pub fn new(w: W) -> Self {
+        Encoder { w: BitWriter::endian(w, LittleEndian) }
     }
 
     /* PUBLIC INTERFACE */
-
-    pub fn block(&mut self, is_final: bool, btype: BlockType, stream: &[LzssElem]) -> io::Result<()> {
-        use BlockType::*;
-
-        match btype {
-            Fixed => {},
-            Stored | Dynamic => todo!("only fixed Huffman blocks are implemented"),
-        }
-
-        self.block_header(is_final, btype)?;
-        self.encode_lzss_stream(stream)?;
-        self.end_of_block()
+    pub fn fixed_block(&mut self, is_final: bool, stream: &[LzssElem]) -> io::Result<()> {
+        self.block_header(is_final, BlockType::Fixed)?;
+        HuffmanBlock::new(&mut self.w, &FIXED_CODES).body(stream)
     }
 
     pub fn finish(mut self) -> io::Result<W> {
@@ -253,18 +248,22 @@ impl <'t, W: io::Write> Encoder<'t, W> {
         Ok(self.w.into_writer())
     }
 
-    /* SECOND LEVEL HELPERS */
-
+    /* HELPER */
     fn block_header(&mut self, is_final: bool, btype: BlockType) -> io::Result<()> {
         self.w.write_bit(is_final)?;
         self.w.write::<2, u8>(btype as u8)
     }
+}
 
-    fn end_of_block(&mut self) -> io::Result<()> {
-        self.code(self.table[LL][256])
+impl <'w, 't, W: io::Write> HuffmanBlock<'w, 't, W> {
+    fn new(w: &'w mut BitWriter<W, LittleEndian>, table: &'t Htable) -> Self {
+        HuffmanBlock {w, table}
     }
 
-    fn encode_lzss_stream(&mut self, stream: &[LzssElem]) -> io::Result<()> {
+    /* INTERFACE */
+
+    /* consumes HuffmanBlock, so it's impossible to call .body() twice */
+    fn body(mut self, stream: &[LzssElem]) -> io::Result<()> {
         use LzssElem::*;
 
         for &e in stream {
@@ -274,10 +273,13 @@ impl <'t, W: io::Write> Encoder<'t, W> {
             }
         }
 
-        Ok(())
+        self.end_of_block()
     }
 
     /* FIRST LEVEL HELPERS */
+    fn end_of_block(&mut self) -> io::Result<()> {
+        self.code(self.table[LL][256])
+    }
 
     fn literal(&mut self, lit: u8) -> io::Result<()> {
         self.code(self.table[LL][lit as usize])
