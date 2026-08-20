@@ -1,6 +1,6 @@
 use bitstream_io::{BitWriter, BitWrite, LittleEndian};
 
-use std::ops::{Index};
+use std::{io, ops::Index};
 
 pub fn to_zlib(data: &[u8]) -> Vec<u8> {
     let mut deflated = to_deflate_block_type1(data);
@@ -30,21 +30,11 @@ pub fn to_deflate_blocks(data: &[u8]) -> Vec<u8> {
 }
 
 pub fn to_deflate_block_type1(data: &[u8]) -> Vec<u8> {
-    let mut w = BitWriter::endian(Vec::new(), LittleEndian);
+    let mut encoder = Encoder::new(Vec::<u8>::new(), &FIXED_CODES);
+    let stream      = apply_lzss(data);
 
-    w.write_bit(true).unwrap();
-    w.write::<2, u8>(0b01).unwrap();
-
-    let stream = apply_lzss(data);
-
-    encode_lzss_stream(&mut w, &FIXED_CODES, &stream);
-
-    let eob = FIXED_CODES[LL][256];
-    w.write_var::<u16>(eob.1.into(), eob.0).unwrap();
-
-    w.byte_align().unwrap();
-
-    w.into_writer()
+    encoder.block(true, BlockType::Fixed, &stream).unwrap();
+    encoder.finish().unwrap()
 }
 
 /* LZSS PART */
@@ -137,33 +127,6 @@ pub const fn huffman_from_lengths<const N: usize> (table: &mut [(u16, u8); N]) {
 
 }
 
-/* LZSS + HUFFMAN */
-pub fn encode_lzss_stream(w: &mut BitWriter<Vec<u8>, LittleEndian>, table: &Htable, stream: &[LzssElem]) {
-    use LzssElem::*;
-
-    for e in stream {
-        match e {
-            Literal(c) => {
-                let code = table[LL][*c as usize];
-                w.write_var::<u16>(code.1.into(), code.0).unwrap();
-            },
-            Reference {length: len, distance: dist} => {
-                let (c, extra_len, extra_value) = LL::huffman_code_for(*len);
-                let code = table[LL][c as usize];
-
-                w.write_var::<u16>(code.1.into(), code.0).unwrap();
-                if extra_len > 0 {w.write_var::<u16>(extra_len as u32, extra_value).unwrap()};
-
-                let (c, extra_len, extra_value) = Distance::huffman_code_for(*dist);
-                let code = table[Distance][c as usize];
-
-                w.write_var::<u16>(code.1.into(), code.0).unwrap();
-                if extra_len > 0 {w.write_var::<u16>(extra_len as u32, extra_value).unwrap()};
-            },
-        }
-    }
-}
-
 /* HUFFMAN TABLE */
 type Code = u16;
 type BitLen = u8;
@@ -250,6 +213,99 @@ pub static FIXED_CODES: Htable = {
 
     Htable {ll, distance}
 };
+
+/* DEFLATE ENCODER */
+pub struct Encoder<'t, W: io::Write> {
+    w:     BitWriter<W, LittleEndian>,
+    table: &'t Htable,
+}
+
+#[repr(u8)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum BlockType {
+    Stored  = 0b00,
+    Fixed   = 0b01,
+    Dynamic = 0b10,
+}
+
+impl <'t, W: io::Write> Encoder<'t, W> {
+    pub fn new(w: W, table: &'t Htable) -> Self {
+        Encoder {w: BitWriter::endian(w, LittleEndian), table}
+    }
+
+    /* PUBLIC INTERFACE */
+
+    pub fn block(&mut self, is_final: bool, btype: BlockType, stream: &[LzssElem]) -> io::Result<()> {
+        use BlockType::*;
+
+        match btype {
+            Fixed => {},
+            Stored | Dynamic => todo!("only fixed Huffman blocks are implemented"),
+        }
+
+        self.block_header(is_final, btype)?;
+        self.encode_lzss_stream(stream)?;
+        self.end_of_block()
+    }
+
+    pub fn finish(mut self) -> io::Result<W> {
+        self.w.byte_align()?;
+        Ok(self.w.into_writer())
+    }
+
+    /* SECOND LEVEL HELPERS */
+
+    fn block_header(&mut self, is_final: bool, btype: BlockType) -> io::Result<()> {
+        self.w.write_bit(is_final)?;
+        self.w.write::<2, u8>(btype as u8)
+    }
+
+    fn end_of_block(&mut self) -> io::Result<()> {
+        self.code(self.table[LL][256])
+    }
+
+    fn encode_lzss_stream(&mut self, stream: &[LzssElem]) -> io::Result<()> {
+        use LzssElem::*;
+
+        for &e in stream {
+            match e {
+                Literal(c)                              => self.literal(c)?,
+                Reference {length: len, distance: dist} => self.reference(len, dist)?,
+            }
+        }
+
+        Ok(())
+    }
+
+    /* FIRST LEVEL HELPERS */
+
+    fn literal(&mut self, lit: u8) -> io::Result<()> {
+        self.code(self.table[LL][lit as usize])
+    }
+
+    fn reference(&mut self, len: u16, dist: u16) -> io::Result<()> {
+        let (sym, bit_len, value) = LL::huffman_code_for(len);
+        self.code(self.table[LL][sym as usize])?;
+        self.extra(bit_len, value)?;
+
+        let (sym, bit_len, value) = Distance::huffman_code_for(dist);
+        self.code(self.table[Distance][sym as usize])?;
+        self.extra(bit_len, value)
+    }
+
+    /* LOWEST LEVEL HELPERS */
+
+    /* codes are stored pre-reversed: LSB-first write yields DEFLATE bit order */
+    fn code(&mut self, (code, bit_len): (Code, BitLen)) -> io::Result<()> {
+        self.w.write_var(bit_len as u32, code)
+    }
+
+    fn extra(&mut self, len: BitLen, value: ExtraBits) -> io::Result<()> {
+        if len > 0 {self.w.write_var(len.into(), value)?};
+
+        Ok(())
+    }
+}
 
 fn adler32(data: &[u8]) -> u32 {
     let (mut a, mut b): (u32, u32) = (1, 0);
