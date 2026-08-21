@@ -1,4 +1,4 @@
-use bitstream_io::{BitWriter, BitWrite, LittleEndian};
+use bitstream_io::{BitWrite, BitWriter, LittleEndian};
 
 use std::{io, ops::Index};
 
@@ -15,12 +15,12 @@ pub fn to_deflate_blocks(data: &[u8]) -> Vec<u8> {
     const MAX_STORED: usize = 65535; // 2^16 - 1
 
     let nblocks = data.len().div_ceil(MAX_STORED).max(1);
-    let mut out = Vec::with_capacity(data.len() + 5*nblocks);
+    let mut out = Vec::with_capacity(data.len() + 5 * nblocks);
 
     for (i, c) in data.chunks(MAX_STORED).enumerate() {
         let len = c.len() as u16;
 
-        out.push(u8::from(i+1 == nblocks));
+        out.push(u8::from(i + 1 == nblocks));
         out.extend_from_slice(&len.to_le_bytes());
         out.extend_from_slice(&(!len).to_le_bytes());
         out.extend_from_slice(c);
@@ -31,7 +31,7 @@ pub fn to_deflate_blocks(data: &[u8]) -> Vec<u8> {
 
 pub fn to_deflate_block_type1(data: &[u8]) -> Vec<u8> {
     let mut encoder = Encoder::new(Vec::<u8>::new());
-    let stream      = apply_lzss(data);
+    let stream = apply_lzss(data);
 
     encoder.fixed_block(true, &stream).unwrap();
     encoder.finish().unwrap()
@@ -42,7 +42,7 @@ pub fn to_deflate_block_type1(data: &[u8]) -> Vec<u8> {
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum LzssElem {
     Literal(u8),
-    Reference {length: u16, distance: u16},
+    Reference { length: u16, distance: u16 },
 }
 
 pub fn apply_lzss(data: &[u8]) -> Vec<LzssElem> {
@@ -59,18 +59,32 @@ pub fn apply_lzss(data: &[u8]) -> Vec<LzssElem> {
 
         for j in (i.saturating_sub(BWIN_LEN)..i).rev() {
             let mut len = 0;
-            for (k, l) in (j..j+FWIN_LEN).zip(i..i+FWIN_LEN) {
-                if l >= data.len() {break};
-                if data[k] != data[l] {break};
+            for (k, l) in (j..j + FWIN_LEN).zip(i..i + FWIN_LEN) {
+                if l >= data.len() {
+                    break;
+                };
+                if data[k] != data[l] {
+                    break;
+                };
 
                 len += 1;
             }
 
             if len >= 3 {
-                let cur_match = Reference {length: len as u16, distance: (i - j) as u16};
+                let cur_match = Reference {
+                    length: len as u16,
+                    distance: (i - j) as u16,
+                };
                 match best_match {
                     Literal(_) => best_match = cur_match,
-                    Reference {length: len_o, distance: _} => if len_o < len {best_match = cur_match},
+                    Reference {
+                        length: len_o,
+                        distance: _,
+                    } => {
+                        if len_o < len {
+                            best_match = cur_match
+                        }
+                    }
                 }
             }
         }
@@ -79,7 +93,10 @@ pub fn apply_lzss(data: &[u8]) -> Vec<LzssElem> {
 
         match best_match {
             Literal(_) => i += 1,
-            Reference {length: len, distance: _} => i += len as usize,
+            Reference {
+                length: len,
+                distance: _,
+            } => i += len as usize,
         }
     }
 
@@ -97,25 +114,25 @@ const fn rev(code: u16, len: u8) -> u16 {
 
 // MAKES REVERSED CODES
 // to work with single LittleEndian bit writer.
-pub const fn huffman_from_lengths<const N: usize> (table: &mut [(u16, u8); N]) {
+pub const fn huffman_from_lengths<const N: usize>(table: &mut [(u16, u8); N]) {
     let mut i = 0;
-    let mut bl_count:  [usize; MAX_BITS+1] = [0; MAX_BITS+1];
-    let mut next_code: [u16;   MAX_BITS+1] = [0; MAX_BITS+1];
+    let mut bl_count: [usize; MAX_BITS + 1] = [0; MAX_BITS + 1];
+    let mut next_code: [u16; MAX_BITS + 1] = [0; MAX_BITS + 1];
 
     while i < N {
         assert!(table[i].1 <= MAX_BITS as u8);
         bl_count[table[i].1 as usize] = bl_count[table[i].1 as usize] + 1;
         i = i + 1;
-    };
+    }
 
     let mut bits = 1;
     let mut code = 0;
 
     while bits <= MAX_BITS {
-        code = (code + bl_count[bits-1]) << 1;
+        code = (code + bl_count[bits - 1]) << 1;
         next_code[bits] = code as u16;
         bits = bits + 1;
-    };
+    }
 
     i = 0;
 
@@ -123,8 +140,7 @@ pub const fn huffman_from_lengths<const N: usize> (table: &mut [(u16, u8); N]) {
         table[i].0 = rev(next_code[table[i].1 as usize], table[i].1);
         next_code[table[i].1 as usize] = next_code[table[i].1 as usize] + 1;
         i = i + 1;
-    };
-
+    }
 }
 
 /* HUFFMAN TABLE */
@@ -140,11 +156,15 @@ pub trait Symbol {
     type Table: ?Sized;
 }
 
-impl Symbol for LL       { type Table = [(Code, BitLen); 288]; }
-impl Symbol for Distance { type Table = [(Code, BitLen); 32]; }
+impl Symbol for LL {
+    type Table = [(Code, BitLen); 288];
+}
+impl Symbol for Distance {
+    type Table = [(Code, BitLen); 32];
+}
 
 pub struct Htable {
-    ll:       <LL       as Symbol>::Table,
+    ll: <LL as Symbol>::Table,
     distance: <Distance as Symbol>::Table,
 }
 
@@ -166,13 +186,21 @@ impl LL {
     pub fn huffman_code_for(len: u16) -> (Code, BitLen, ExtraBits) {
         assert!(len >= 3 && len <= 258);
 
-        if len <= 10 {(256 + len - 2, 0, 0)}
-        else if len <= 18  {(265 + (len - 11) /2,  1, (len - 11)  % 2)}
-        else if len <= 34  {(269 + (len - 19) /4,  2, (len - 19)  % 4)}
-        else if len <= 66  {(273 + (len - 35) /8,  3, (len - 35)  % 8)}
-        else if len <= 130 {(277 + (len - 67) /16, 4, (len - 67)  % 16)}
-        else if len <= 257 {(281 + (len - 131)/32, 5, (len - 131) % 32)}
-        else {(285, 0, 0)}
+        if len <= 10 {
+            (256 + len - 2, 0, 0)
+        } else if len <= 18 {
+            (265 + (len - 11) / 2, 1, (len - 11) % 2)
+        } else if len <= 34 {
+            (269 + (len - 19) / 4, 2, (len - 19) % 4)
+        } else if len <= 66 {
+            (273 + (len - 35) / 8, 3, (len - 35) % 8)
+        } else if len <= 130 {
+            (277 + (len - 67) / 16, 4, (len - 67) % 16)
+        } else if len <= 257 {
+            (281 + (len - 131) / 32, 5, (len - 131) % 32)
+        } else {
+            (285, 0, 0)
+        }
     }
 }
 
@@ -180,12 +208,14 @@ impl Distance {
     pub fn huffman_code_for(dist: u16) -> (Code, BitLen, ExtraBits) {
         assert!(dist >= 1 && dist <= 32768);
 
-        if dist <= 4 {return (dist - 1, 0, 0);}
+        if dist <= 4 {
+            return (dist - 1, 0, 0);
+        }
 
-        let d      = dist - 1;                        // turn dist to 10xx/11xx
+        let d = dist - 1; // turn dist to 10xx/11xx
         let n: u16 = (15 - d.leading_zeros()) as u16;
-        let extra  = (n - 1) as u8;
-        let code   = 2 * n + ((d >> extra) & 1);
+        let extra = (n - 1) as u8;
+        let code = 2 * n + ((d >> extra) & 1);
 
         (code, extra, d & ((1 << extra) - 1))
     }
@@ -193,25 +223,30 @@ impl Distance {
 
 // CONTAINS REVERSED CODES
 pub static FIXED_CODES: Htable = {
-    let mut ll:         <LL       as Symbol>::Table = [(0, 0); 288];
-    let mut distance:   <Distance as Symbol>::Table = [(0, 5); 32];
+    let mut ll: <LL as Symbol>::Table = [(0, 0); 288];
+    let mut distance: <Distance as Symbol>::Table = [(0, 5); 32];
     let mut i: usize = 0;
 
     while i < 288 {
         ll[i].0 = i as u16;
 
-        if      i <= 143 || i >= 280 {ll[i].1 = 8;}
-        else if i >= 144 && i <= 255 {ll[i].1 = 9;}
-        else if i >= 256 && i <= 279 {ll[i].1 = 7;}
-        else    {panic!()}
+        if i <= 143 || i >= 280 {
+            ll[i].1 = 8;
+        } else if i >= 144 && i <= 255 {
+            ll[i].1 = 9;
+        } else if i >= 256 && i <= 279 {
+            ll[i].1 = 7;
+        } else {
+            panic!()
+        }
 
         i += 1;
-    };
+    }
 
     huffman_from_lengths(&mut ll);
     huffman_from_lengths(&mut distance);
 
-    Htable {ll, distance}
+    Htable { ll, distance }
 };
 
 /* DEFLATE ENCODER */
@@ -222,19 +257,21 @@ pub struct Encoder<W: io::Write> {
 #[repr(u8)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum BlockType {
-    Stored  = 0b00,
-    Fixed   = 0b01,
+    Stored = 0b00,
+    Fixed = 0b01,
     Dynamic = 0b10,
 }
 
 struct HuffmanBlock<'w, 't, W: io::Write> {
-    w:     &'w mut BitWriter<W, LittleEndian>,
+    w: &'w mut BitWriter<W, LittleEndian>,
     table: &'t Htable,
 }
 
-impl <W: io::Write> Encoder<W> {
+impl<W: io::Write> Encoder<W> {
     pub fn new(w: W) -> Self {
-        Encoder { w: BitWriter::endian(w, LittleEndian) }
+        Encoder {
+            w: BitWriter::endian(w, LittleEndian),
+        }
     }
 
     /* PUBLIC INTERFACE */
@@ -255,9 +292,9 @@ impl <W: io::Write> Encoder<W> {
     }
 }
 
-impl <'w, 't, W: io::Write> HuffmanBlock<'w, 't, W> {
+impl<'w, 't, W: io::Write> HuffmanBlock<'w, 't, W> {
     fn new(w: &'w mut BitWriter<W, LittleEndian>, table: &'t Htable) -> Self {
-        HuffmanBlock {w, table}
+        HuffmanBlock { w, table }
     }
 
     /* INTERFACE */
@@ -268,8 +305,11 @@ impl <'w, 't, W: io::Write> HuffmanBlock<'w, 't, W> {
 
         for &e in stream {
             match e {
-                Literal(c)                              => self.literal(c)?,
-                Reference {length: len, distance: dist} => self.reference(len, dist)?,
+                Literal(c) => self.literal(c)?,
+                Reference {
+                    length: len,
+                    distance: dist,
+                } => self.reference(len, dist)?,
             }
         }
 
@@ -303,7 +343,9 @@ impl <'w, 't, W: io::Write> HuffmanBlock<'w, 't, W> {
     }
 
     fn extra(&mut self, len: BitLen, value: ExtraBits) -> io::Result<()> {
-        if len > 0 {self.w.write_var(len.into(), value)?};
+        if len > 0 {
+            self.w.write_var(len.into(), value)?
+        };
 
         Ok(())
     }
@@ -317,4 +359,3 @@ fn adler32(data: &[u8]) -> u32 {
     }
     (b << 16) | a
 }
-
