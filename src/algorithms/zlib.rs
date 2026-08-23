@@ -2,6 +2,8 @@ use bitstream_io::{BitWrite, BitWriter, LittleEndian};
 
 use std::{io, ops::Index};
 
+use itertools::Itertools;
+
 pub fn to_zlib(data: &[u8]) -> Vec<u8> {
     let mut deflated = to_deflate_block_type1(data);
 
@@ -107,6 +109,82 @@ pub fn apply_lzss(data: &[u8]) -> Vec<LzssElem> {
 
 const MAX_BITS: usize = 15;
 
+type Code = u16;
+type BitLen = u8;
+type ExtraBits = u16;
+
+type Frequency = u64;
+
+pub fn package_merge(table: &[(Code, Frequency)], max_bits: usize) -> Vec<(Code, BitLen)> {
+    type AIndex = u32; // Arena Index
+    const NIL: AIndex = AIndex::MAX;
+
+    // (head, tail, freq)
+    type Element = (AIndex, AIndex, Frequency);
+
+    assert!(!table.is_empty());
+    assert!(table[0].0 == 0);
+    assert!(table.windows(2).all(|w| w[0].0 + 1 == w[1].0));
+
+    let mut leaves: Vec<(Code, Frequency)> =
+        table.iter().copied().filter(|&(_, f)| f != 0).collect();
+
+    leaves.sort_unstable_by_key(|&(c, f)| (f, c));
+
+    let n = leaves.len();
+    assert!(
+        n >= 2,
+        "package_merge requires at least 2 symbols with nonzero frequency"
+    );
+    assert!(
+        n <= 1 << max_bits,
+        "no code with {max_bits} exists for {n} symbols"
+    );
+
+    // (code, next)
+    let mut arena: Vec<(Code, AIndex)> = Vec::with_capacity(n * max_bits);
+    let mut stored: Vec<Element> = Vec::with_capacity(n - 1);
+    let mut row: Vec<Element> = Vec::with_capacity(2 * n - 1);
+
+    for i in (1..=max_bits).rev() {
+        let leaf_iter = leaves.iter().map(|&(c, f)| {
+            let idx = arena.len() as AIndex;
+            arena.push((c, NIL));
+            (idx, idx, f)
+        });
+
+        row.extend(leaf_iter.merge_by(stored.drain(..), |a, b| a.2 <= b.2));
+
+        if i == 1 {
+            break;
+        }
+
+        for pair in row.chunks_exact(2) {
+            let (h1, t1, f1) = pair[0];
+            let (h2, t2, f2) = pair[1];
+            arena[t1 as usize].1 = h2;
+            stored.push((h1, t2, f1 + f2));
+        }
+
+        row.clear();
+    }
+
+    row.truncate(2 * n - 2);
+
+    let mut ret: Vec<(Code, BitLen)> = table.iter().map(|&(c, _)| (c, 0)).collect();
+
+    for &(head, _, _) in &row {
+        let mut node = head;
+        while node != NIL {
+            let (c, next) = arena[node as usize];
+            ret[c as usize].1 += 1;
+            node = next;
+        }
+    }
+
+    ret
+}
+
 const fn rev(code: u16, len: u8) -> u16 {
     assert!(len as usize <= MAX_BITS && len != 0);
     code.reverse_bits() >> (16 - len)
@@ -144,9 +222,6 @@ pub const fn huffman_from_lengths<const N: usize>(table: &mut [(u16, u8); N]) {
 }
 
 /* HUFFMAN TABLE */
-type Code = u16;
-type BitLen = u8;
-type ExtraBits = u16;
 
 /* ZST to index Htable */
 pub struct LL;

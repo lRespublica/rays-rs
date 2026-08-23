@@ -16,3 +16,4 @@ bytemuck = { version = "1", features = ["derive"] }
 strength_reduce = "0.2"
 rayon = "1"
 bitstream-io = "4"
+itertools = "0.14"
