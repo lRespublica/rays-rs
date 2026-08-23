@@ -199,24 +199,31 @@ pub const fn huffman_from_lengths<const N: usize>(table: &mut [(u16, u8); N]) {
 
     while i < N {
         assert!(table[i].1 <= MAX_BITS as u8);
-        bl_count[table[i].1 as usize] = bl_count[table[i].1 as usize] + 1;
+        bl_count[table[i].1 as usize] += 1;
         i = i + 1;
     }
 
     let mut bits = 1;
     let mut code = 0;
 
+    bl_count[0] = 0;
+
     while bits <= MAX_BITS {
         code = (code + bl_count[bits - 1]) << 1;
         next_code[bits] = code as u16;
-        bits = bits + 1;
+        bits += 1;
     }
 
     i = 0;
 
     while i < N {
-        table[i].0 = rev(next_code[table[i].1 as usize], table[i].1);
-        next_code[table[i].1 as usize] = next_code[table[i].1 as usize] + 1;
+        let len = table[i].1 as usize;
+        if len != 0 {
+            table[i].0 = rev(next_code[len], table[i].1);
+            next_code[len] += 1;
+        } else {
+            table[i].0 = 0;
+        }
         i = i + 1;
     }
 }
