@@ -45,6 +45,7 @@ pub fn to_deflate_block_type1(data: &[u8]) -> Vec<u8> {
 pub enum LzssElem {
     Literal(u8),
     Reference { length: u16, distance: u16 },
+    EOB,
 }
 
 pub fn apply_lzss(data: &[u8]) -> Vec<LzssElem> {
@@ -86,7 +87,8 @@ pub fn apply_lzss(data: &[u8]) -> Vec<LzssElem> {
                         if len_o < len {
                             best_match = cur_match
                         }
-                    }
+                    },
+                    EOB => { unreachable!("EOB could not be matched") },
                 }
             }
         }
@@ -99,8 +101,11 @@ pub fn apply_lzss(data: &[u8]) -> Vec<LzssElem> {
                 length: len,
                 distance: _,
             } => i += len as usize,
+            EOB => { unreachable!("EOB could not be matched") },
         }
     }
+
+    output.push(EOB);
 
     output
 }
@@ -404,11 +409,13 @@ impl<'w, 't, W: io::Write> HuffmanBlock<'w, 't, W> {
                     length: len,
                     distance: dist,
                 } => self.reference(len, dist)?,
+                EOB => self.end_of_block()?,
             }
         }
 
-        self.end_of_block()
+        Ok(())
     }
+
 
     /* FIRST LEVEL HELPERS */
     fn end_of_block(&mut self) -> io::Result<()> {
