@@ -115,19 +115,20 @@ type ExtraBits = u16;
 
 type Frequency = u64;
 
-pub fn package_merge(table: &[(Code, Frequency)], max_bits: usize) -> Vec<(Code, BitLen)> {
+pub fn package_merge<const N: usize>(freqs: &[Frequency; N], max_bits: usize) -> [BitLen; N] {
     type AIndex = u32; // Arena Index
     const NIL: AIndex = AIndex::MAX;
 
     // (head, tail, freq)
     type Element = (AIndex, AIndex, Frequency);
 
-    assert!(!table.is_empty());
-    assert!(table[0].0 == 0);
-    assert!(table.windows(2).all(|w| w[0].0 + 1 == w[1].0));
-
-    let mut leaves: Vec<(Code, Frequency)> =
-        table.iter().copied().filter(|&(_, f)| f != 0).collect();
+    let mut leaves: Vec<(Code, Frequency)> = freqs
+        .iter()
+        .copied()
+        .enumerate()
+        .map(|(c, f)| (c as Code, f))
+        .filter(|&(_, f)| f != 0)
+        .collect();
 
     leaves.sort_unstable_by_key(|&(c, f)| (f, c));
 
@@ -171,13 +172,13 @@ pub fn package_merge(table: &[(Code, Frequency)], max_bits: usize) -> Vec<(Code,
 
     row.truncate(2 * n - 2);
 
-    let mut ret: Vec<(Code, BitLen)> = table.iter().map(|&(c, _)| (c, 0)).collect();
+    let mut ret: [BitLen; N] = [0; N];
 
     for &(head, _, _) in &row {
         let mut node = head;
         while node != NIL {
             let (c, next) = arena[node as usize];
-            ret[c as usize].1 += 1;
+            ret[c as usize] += 1;
             node = next;
         }
     }
@@ -192,15 +193,18 @@ const fn rev(code: u16, len: u8) -> u16 {
 
 // MAKES REVERSED CODES
 // to work with single LittleEndian bit writer.
-pub const fn huffman_from_lengths<const N: usize>(table: &mut [(u16, u8); N]) {
+pub const fn huffman_from_lengths<const N: usize>(lengths: &[BitLen; N]) -> [(Code, BitLen); N] {
     let mut i = 0;
     let mut bl_count: [usize; MAX_BITS + 1] = [0; MAX_BITS + 1];
     let mut next_code: [u16; MAX_BITS + 1] = [0; MAX_BITS + 1];
 
+    let mut ret: [(Code, BitLen); N] = [(0, 0); N];
+
     while i < N {
-        assert!(table[i].1 <= MAX_BITS as u8);
-        bl_count[table[i].1 as usize] += 1;
-        i = i + 1;
+        assert!(lengths[i] <= MAX_BITS as u8);
+        bl_count[lengths[i] as usize] += 1;
+
+        i += 1;
     }
 
     let mut bits = 1;
@@ -217,15 +221,19 @@ pub const fn huffman_from_lengths<const N: usize>(table: &mut [(u16, u8); N]) {
     i = 0;
 
     while i < N {
-        let len = table[i].1 as usize;
+        let len = lengths[i] as usize;
         if len != 0 {
-            table[i].0 = rev(next_code[len], table[i].1);
+            ret[i].0 = rev(next_code[len], len as u8);
+            ret[i].1 = len as u8;
             next_code[len] += 1;
         } else {
-            table[i].0 = 0;
+            ret[i].0 = 0;
+            ret[i].1 = 0;
         }
-        i = i + 1;
+        i += 1;
     }
+
+    ret
 }
 
 /* HUFFMAN TABLE */
@@ -235,16 +243,20 @@ pub struct LL;
 pub struct Distance;
 
 pub trait Symbol {
-    type Table: ?Sized;
+    type Lengths;
+    type Table;
 }
 
 impl Symbol for LL {
+    type Lengths = [BitLen; 288];
     type Table = [(Code, BitLen); 288];
 }
 impl Symbol for Distance {
+    type Lengths = [BitLen; 32];
     type Table = [(Code, BitLen); 32];
 }
 
+#[derive(Debug, Clone)]
 pub struct Htable {
     ll: <LL as Symbol>::Table,
     distance: <Distance as Symbol>::Table,
@@ -305,28 +317,28 @@ impl Distance {
 
 // CONTAINS REVERSED CODES
 pub static FIXED_CODES: Htable = {
-    let mut ll: <LL as Symbol>::Table = [(0, 0); 288];
-    let mut distance: <Distance as Symbol>::Table = [(0, 5); 32];
+    let mut ll: <LL as Symbol>::Lengths = [0; 288];
+    let distance: <Distance as Symbol>::Lengths = [5; 32];
     let mut i: usize = 0;
 
     while i < 288 {
-        ll[i].0 = i as u16;
-
-        if i <= 143 || i >= 280 {
-            ll[i].1 = 8;
+        if i <= 143 {
+            ll[i] = 8;
         } else if i >= 144 && i <= 255 {
-            ll[i].1 = 9;
+            ll[i] = 9;
         } else if i >= 256 && i <= 279 {
-            ll[i].1 = 7;
+            ll[i] = 7;
+        } else if i >= 280 && i < 288 {
+            ll[i] = 8;
         } else {
-            panic!()
+            unreachable!()
         }
 
         i += 1;
     }
 
-    huffman_from_lengths(&mut ll);
-    huffman_from_lengths(&mut distance);
+    let ll = huffman_from_lengths(&ll);
+    let distance = huffman_from_lengths(&distance);
 
     Htable { ll, distance }
 };
