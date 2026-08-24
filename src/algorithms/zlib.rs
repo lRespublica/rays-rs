@@ -121,6 +121,8 @@ type ExtraBits = u16;
 type Frequency = u64;
 
 pub fn package_merge<const N: usize>(freqs: &[Frequency; N], max_bits: usize) -> [BitLen; N] {
+    const { assert!(N >= 2) };
+
     type AIndex = u32; // Arena Index
     const NIL: AIndex = AIndex::MAX;
 
@@ -135,13 +137,16 @@ pub fn package_merge<const N: usize>(freqs: &[Frequency; N], max_bits: usize) ->
         .filter(|&(_, f)| f != 0)
         .collect();
 
+    // extend leaves with virtual symbols for one element and empty table cases
+    match leaves.as_slice() {
+        [] => { leaves.extend([(0, 1), (1, 1)]); },
+        &[(c, _)] => leaves.push((Code::from(c == 0), 1)),
+        _ => {},
+    }
+
     leaves.sort_unstable_by_key(|&(c, f)| (f, c));
 
     let n = leaves.len();
-    assert!(
-        n >= 2,
-        "package_merge requires at least 2 symbols with nonzero frequency"
-    );
     assert!(
         n <= 1 << max_bits,
         "no code with {max_bits} exists for {n} symbols"
