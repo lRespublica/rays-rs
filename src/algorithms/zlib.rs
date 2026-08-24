@@ -87,8 +87,10 @@ pub fn apply_lzss(data: &[u8]) -> Vec<LzssElem> {
                         if len_o < len {
                             best_match = cur_match
                         }
-                    },
-                    EOB => { unreachable!("EOB could not be matched") },
+                    }
+                    EOB => {
+                        unreachable!("EOB could not be matched")
+                    }
                 }
             }
         }
@@ -101,7 +103,9 @@ pub fn apply_lzss(data: &[u8]) -> Vec<LzssElem> {
                 length: len,
                 distance: _,
             } => i += len as usize,
-            EOB => { unreachable!("EOB could not be matched") },
+            EOB => {
+                unreachable!("EOB could not be matched")
+            }
         }
     }
 
@@ -139,9 +143,11 @@ pub fn package_merge<const N: usize>(freqs: &[Frequency; N], max_bits: usize) ->
 
     // extend leaves with virtual symbols for one element and empty table cases
     match leaves.as_slice() {
-        [] => { leaves.extend([(0, 1), (1, 1)]); },
+        [] => {
+            leaves.extend([(0, 1), (1, 1)]);
+        }
         &[(c, _)] => leaves.push((Code::from(c == 0), 1)),
-        _ => {},
+        _ => {}
     }
 
     leaves.sort_unstable_by_key(|&(c, f)| (f, c));
@@ -328,29 +334,35 @@ impl Distance {
 impl Htable {
     pub fn from_stream(stream: &[LzssElem]) -> Self {
         // last element of stream must be EOB marker
-        assert!(stream.iter().rposition(|e| *e == LzssElem::EOB) == Some(stream.len() - 1),
-                "from_stream: EOB must occur exactly once, at the end");
+        assert!(
+            stream.iter().rposition(|e| *e == LzssElem::EOB) == Some(stream.len() - 1),
+            "from_stream: EOB must occur exactly once, at the end"
+        );
 
         let mut ll: [Frequency; LL::N] = [0; LL::N];
         let mut distance: [Frequency; Distance::N] = [0; Distance::N];
 
         for &e in stream {
             match e {
-                LzssElem::Literal(c) => {ll[c as usize] += 1},
-                LzssElem::Reference { length: len, distance: dist} => {
+                LzssElem::Literal(c) => ll[c as usize] += 1,
+                LzssElem::Reference {
+                    length: len,
+                    distance: dist,
+                } => {
                     let (c, _, _) = LL::huffman_code_for(len);
                     ll[c as usize] += 1;
 
                     let (c, _, _) = Distance::huffman_code_for(dist);
                     distance[c as usize] += 1;
                 }
-                LzssElem::EOB => {ll[256] += 1},
+                LzssElem::EOB => ll[256] += 1,
             }
         }
 
         let ll = huffman_from_lengths(&package_merge(&ll, MAX_BITS));
         let distance = huffman_from_lengths(&package_merge(&distance, MAX_BITS));
-        Htable {ll, distance}
+        Htable { ll, distance }
+    }
     }
 }
 
