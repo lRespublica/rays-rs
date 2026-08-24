@@ -325,6 +325,35 @@ impl Distance {
     }
 }
 
+impl Htable {
+    pub fn from_stream(stream: &[LzssElem]) -> Self {
+        // last element of stream must be EOB marker
+        assert!(stream.iter().rposition(|e| *e == LzssElem::EOB) == Some(stream.len() - 1),
+                "from_stream: EOB must occur exactly once, at the end");
+
+        let mut ll: [Frequency; LL::N] = [0; LL::N];
+        let mut distance: [Frequency; Distance::N] = [0; Distance::N];
+
+        for &e in stream {
+            match e {
+                LzssElem::Literal(c) => {ll[c as usize] += 1},
+                LzssElem::Reference { length: len, distance: dist} => {
+                    let (c, _, _) = LL::huffman_code_for(len);
+                    ll[c as usize] += 1;
+
+                    let (c, _, _) = Distance::huffman_code_for(dist);
+                    distance[c as usize] += 1;
+                }
+                LzssElem::EOB => {ll[256] += 1},
+            }
+        }
+
+        let ll = huffman_from_lengths(&package_merge(&ll, MAX_BITS));
+        let distance = huffman_from_lengths(&package_merge(&distance, MAX_BITS));
+        Htable {ll, distance}
+    }
+}
+
 // CONTAINS REVERSED CODES
 pub static FIXED_CODES: Htable = {
     let mut ll: <LL as Symbol>::Lengths = [0; 288];
