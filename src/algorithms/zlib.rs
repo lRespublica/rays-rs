@@ -39,6 +39,14 @@ pub fn to_deflate_block_type1(data: &[u8]) -> Vec<u8> {
     encoder.finish().unwrap()
 }
 
+pub fn to_deflate_block_type2(data: &[u8]) -> Vec<u8> {
+    let mut encoder = Encoder::new(Vec::<u8>::new());
+    let stream = apply_lzss(data);
+
+    encoder.dynamic_block(true, &stream).unwrap();
+    encoder.finish().unwrap()
+}
+
 /* LZSS PART */
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -526,6 +534,16 @@ impl<W: io::Write> Encoder<W> {
     pub fn fixed_block(&mut self, is_final: bool, stream: &[LzssElem]) -> io::Result<()> {
         self.block_header(is_final, BlockType::Fixed)?;
         HuffmanBlock::new(&mut self.w, &FIXED_CODES).body(stream)
+    }
+
+    pub fn dynamic_block(&mut self, is_final: bool, stream: &[LzssElem]) -> io::Result<()> {
+        self.block_header(is_final, BlockType::Dynamic)?;
+
+        let table = Htable::from_stream(stream);
+        let mut writer = HuffmanBlock::new(&mut self.w, &table);
+
+        writer.table()?;
+        writer.body(stream)
     }
 
     pub fn finish(mut self) -> io::Result<W> {
