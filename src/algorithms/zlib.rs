@@ -13,24 +13,6 @@ pub fn to_zlib(data: &[u8]) -> Vec<u8> {
     deflated
 }
 
-pub fn to_deflate_blocks(data: &[u8]) -> Vec<u8> {
-    const MAX_STORED: usize = 65535; // 2^16 - 1
-
-    let nblocks = data.len().div_ceil(MAX_STORED).max(1);
-    let mut out = Vec::with_capacity(data.len() + 5 * nblocks);
-
-    for (i, c) in data.chunks(MAX_STORED).enumerate() {
-        let len = c.len() as u16;
-
-        out.push(u8::from(i + 1 == nblocks));
-        out.extend_from_slice(&len.to_le_bytes());
-        out.extend_from_slice(&(!len).to_le_bytes());
-        out.extend_from_slice(c);
-    }
-
-    out
-}
-
 pub fn to_deflate_block_type1(data: &[u8]) -> Vec<u8> {
     let mut encoder = Encoder::new(Vec::<u8>::new());
     let stream = apply_lzss(data);
