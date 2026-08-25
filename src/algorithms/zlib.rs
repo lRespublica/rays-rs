@@ -59,7 +59,7 @@ pub enum LzssElem {
 pub fn apply_lzss(data: &[u8]) -> Vec<LzssElem> {
     use LzssElem::*;
 
-    const BWIN_LEN: usize = 32768;
+    const BWIN_LEN: usize = 8192;
     const FWIN_LEN: usize = 258;
 
     let mut output: Vec<LzssElem> = Vec::new();
