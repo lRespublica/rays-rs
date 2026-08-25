@@ -255,21 +255,32 @@ pub const fn huffman_from_lengths<const N: usize>(lengths: &[BitLen; N]) -> [(Co
 /* HUFFMAN TABLE */
 
 /* ZST to index Htable */
-pub struct LL;
+pub struct LL; // Literal & Lengths
 pub struct Distance;
+pub struct CL; // Code Lengths
 
 pub trait Symbol {
+    const N: usize;
     type Lengths;
     type Table;
 }
 
 impl Symbol for LL {
-    type Lengths = [BitLen; 288];
-    type Table = [(Code, BitLen); 288];
+    const N: usize = 288;
+    type Lengths = [BitLen; Self::N];
+    type Table = [(Code, BitLen); Self::N];
 }
+
 impl Symbol for Distance {
-    type Lengths = [BitLen; 32];
-    type Table = [(Code, BitLen); 32];
+    const N: usize = 32;
+    type Lengths = [BitLen; Self::N];
+    type Table = [(Code, BitLen); Self::N];
+}
+
+impl Symbol for CL {
+    const N: usize = 19;
+    type Lengths = [BitLen; Self::N];
+    type Table = [(Code, BitLen); Self::N];
 }
 
 /* Code Lengths type */
