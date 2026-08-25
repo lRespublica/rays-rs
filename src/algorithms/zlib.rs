@@ -5,7 +5,7 @@ use std::{io, ops::Index};
 use itertools::Itertools;
 
 pub fn to_zlib(data: &[u8]) -> Vec<u8> {
-    let mut deflated = to_deflate_block_type1(data);
+    let mut deflated = to_deflate_block_type2(data);
 
     deflated.splice(0..0, [0x78, 0x01]); // push front zlib signature
     deflated.extend_from_slice(&(adler32(data)).to_be_bytes()); // append adler32
