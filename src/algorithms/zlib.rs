@@ -452,6 +452,23 @@ impl Htable {
     }
 }
 
+impl CL {
+    pub fn generate_huffman_code(stream: &[CLElem]) -> <Self as Symbol>::Table {
+        let mut freqs: [Frequency; Self::N] = [0; Self::N];
+
+        for &e in stream {
+            match e {
+                CLElem::CL(c) => freqs[c as usize] += 1,
+                CLElem::RPrevious(_) => freqs[16] += 1,
+                CLElem::RZeroS(_) => freqs[17] += 1,
+                CLElem::RZeroL(_) => freqs[18] += 1,
+            }
+        }
+
+        huffman_from_lengths(&package_merge(&freqs, 7))
+    }
+}
+
 // CONTAINS REVERSED CODES
 pub static FIXED_CODES: Htable = {
     let mut ll: <LL as Symbol>::Lengths = [0; 288];
