@@ -565,6 +565,54 @@ impl<'w, 't, W: io::Write> HuffmanBlock<'w, 't, W> {
         Ok(())
     }
 
+    fn table(&mut self) -> io::Result<()> {
+        const CL_ORDER: [usize; 19] = [
+            16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15,
+        ];
+
+        let (cl_stream, hlit, hdist) = self.table.encode();
+        let cl_table = CL::generate_huffman_code(&cl_stream);
+
+        let hclen: u8 = CL_ORDER
+            .iter()
+            .rposition(|&i| cl_table[i].1 != 0)
+            .map_or(4, |p| (p + 1).max(4) as u8);
+        let hclen: u8 = hclen - 4;
+
+        self.w.write_var(5, hlit)?;
+        self.w.write_var(5, hdist)?;
+        self.w.write_var(4, hclen)?;
+
+        for &i in CL_ORDER.iter().take((hclen + 4) as usize) {
+            self.w.write_var(3, cl_table[i].1)?;
+        }
+
+        for e in cl_stream {
+            match e {
+                CLElem::CL(c) => {
+                    let (val, len) = cl_table[c as usize];
+                    self.w.write_var(len as u32, val)?;
+                }
+                CLElem::RPrevious(c) => {
+                    let (val, len) = cl_table[16];
+                    self.w.write_var(len as u32, val)?;
+                    self.w.write_var(2, c)?;
+                }
+                CLElem::RZeroS(c) => {
+                    let (val, len) = cl_table[17];
+                    self.w.write_var(len as u32, val)?;
+                    self.w.write_var(3, c)?;
+                }
+                CLElem::RZeroL(c) => {
+                    let (val, len) = cl_table[18];
+                    self.w.write_var(len as u32, val)?;
+                    self.w.write_var(7, c)?;
+                }
+            }
+        }
+
+        Ok(())
+    }
 
     /* FIRST LEVEL HELPERS */
     fn end_of_block(&mut self) -> io::Result<()> {
