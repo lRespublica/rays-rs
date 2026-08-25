@@ -13,6 +13,7 @@ pub fn to_zlib(data: &[u8]) -> Vec<u8> {
     deflated
 }
 
+#[allow(dead_code)]
 fn to_deflate_block_type1(data: &[u8]) -> Vec<u8> {
     let mut encoder = Encoder::new(Vec::<u8>::new());
     let stream = apply_lzss(data);
@@ -494,6 +495,7 @@ struct Encoder<W: io::Write> {
 
 #[repr(u8)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[allow(dead_code)]
 enum BlockType {
     Stored = 0b00,
     Fixed = 0b01,
@@ -513,6 +515,7 @@ impl<W: io::Write> Encoder<W> {
     }
 
     /* PUBLIC INTERFACE */
+    #[allow(dead_code)]
     fn fixed_block(&mut self, is_final: bool, stream: &[LzssElem]) -> io::Result<()> {
         self.block_header(is_final, BlockType::Fixed)?;
         HuffmanBlock::new(&mut self.w, &FIXED_CODES).body(stream)
