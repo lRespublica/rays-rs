@@ -272,6 +272,15 @@ impl Symbol for Distance {
     type Table = [(Code, BitLen); 32];
 }
 
+/* Code Lengths type */
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum CLElem {
+    CL(u8),        // Represent code lengths of 0 - 15
+    RPrevious(u8), // Repeat the previous code 3 - 6 times. (2 bits of length)
+    RZeroS(u8),    // Repeat Zero code Small version. 3 - 10 times. (3 bits of length)
+    RZeroL(u8),    // Repeat Zero code Large version. 11 - 138 times. (7 bits of length)
+}
+
 #[derive(Debug, Clone)]
 pub struct Htable {
     ll: <LL as Symbol>::Table,
@@ -363,6 +372,72 @@ impl Htable {
         let distance = huffman_from_lengths(&package_merge(&distance, MAX_BITS));
         Htable { ll, distance }
     }
+
+    // (elements, HLIT, HDIST)
+    pub fn encode(&self) -> (Vec<CLElem>, u8, u8) {
+        const CL_ZERO_MAX: usize = 138;
+        const CL_REPEAT_MAX: usize = 6;
+
+        let hlit = self
+            .ll
+            .iter()
+            .rposition(|&(_, l)| l != 0)
+            .map_or(257, |x| x + 1);
+        let hdist = self
+            .distance
+            .iter()
+            .rposition(|&(_, l)| l != 0)
+            .map_or(1, |x| x + 1);
+
+        assert!(hlit >= 257);
+        assert!(hdist >= 1);
+
+        let lens: Vec<BitLen> = self.ll[..hlit]
+            .iter()
+            .chain(&self.distance[..hdist])
+            .map(|&(_, l)| l)
+            .collect();
+
+        let mut out = Vec::with_capacity(lens.len());
+        let mut prev: Option<BitLen> = None;
+        let mut i = 0;
+
+        while i < lens.len() {
+            let cur = lens[i];
+            let mut run = 1;
+            while i + run < lens.len() && lens[i + run] == cur && run < CL_ZERO_MAX {
+                run += 1;
+            }
+
+            if cur == 0 {
+                if run < 3 {
+                    out.extend(std::iter::repeat_n(CLElem::CL(0), run));
+                } else if run <= 10 {
+                    out.push(CLElem::RZeroS((run - 3) as u8));
+                } else {
+                    out.push(CLElem::RZeroL((run - 11) as u8));
+                }
+            } else {
+                let mut rest = run;
+                if prev != Some(cur) {
+                    out.push(CLElem::CL(cur));
+                    rest -= 1;
+                }
+
+                while rest >= 3 {
+                    let take = rest.min(CL_REPEAT_MAX);
+                    out.push(CLElem::RPrevious((take - 3) as u8));
+                    rest -= take;
+                }
+
+                out.extend(std::iter::repeat_n(CLElem::CL(cur), rest));
+            }
+
+            prev = Some(cur);
+            i += run;
+        }
+
+        (out, (hlit - 257) as u8, (hdist - 1) as u8)
     }
 }
 
