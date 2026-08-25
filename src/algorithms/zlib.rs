@@ -13,7 +13,7 @@ pub fn to_zlib(data: &[u8]) -> Vec<u8> {
     deflated
 }
 
-pub fn to_deflate_block_type1(data: &[u8]) -> Vec<u8> {
+fn to_deflate_block_type1(data: &[u8]) -> Vec<u8> {
     let mut encoder = Encoder::new(Vec::<u8>::new());
     let stream = apply_lzss(data);
 
@@ -21,7 +21,7 @@ pub fn to_deflate_block_type1(data: &[u8]) -> Vec<u8> {
     encoder.finish().unwrap()
 }
 
-pub fn to_deflate_block_type2(data: &[u8]) -> Vec<u8> {
+fn to_deflate_block_type2(data: &[u8]) -> Vec<u8> {
     let mut encoder = Encoder::new(Vec::<u8>::new());
     let stream = apply_lzss(data);
 
@@ -32,13 +32,13 @@ pub fn to_deflate_block_type2(data: &[u8]) -> Vec<u8> {
 /* LZSS PART */
 
 #[derive(Debug, Copy, Clone, PartialEq)]
-pub enum LzssElem {
+enum LzssElem {
     Literal(u8),
     Reference { length: u16, distance: u16 },
     EOB,
 }
 
-pub fn apply_lzss(data: &[u8]) -> Vec<LzssElem> {
+fn apply_lzss(data: &[u8]) -> Vec<LzssElem> {
     use LzssElem::*;
 
     const BWIN_LEN: usize = 8192;
@@ -114,7 +114,7 @@ type ExtraBits = u16;
 
 type Frequency = u64;
 
-pub fn package_merge<const N: usize>(freqs: &[Frequency; N], max_bits: usize) -> [BitLen; N] {
+fn package_merge<const N: usize>(freqs: &[Frequency; N], max_bits: usize) -> [BitLen; N] {
     const { assert!(N >= 2) };
 
     type AIndex = u32; // Arena Index
@@ -199,7 +199,7 @@ const fn rev(code: u16, len: u8) -> u16 {
 
 // MAKES REVERSED CODES
 // to work with single LittleEndian bit writer.
-pub const fn huffman_from_lengths<const N: usize>(lengths: &[BitLen; N]) -> [(Code, BitLen); N] {
+const fn huffman_from_lengths<const N: usize>(lengths: &[BitLen; N]) -> [(Code, BitLen); N] {
     let mut i = 0;
     let mut bl_count: [usize; MAX_BITS + 1] = [0; MAX_BITS + 1];
     let mut next_code: [u16; MAX_BITS + 1] = [0; MAX_BITS + 1];
@@ -245,11 +245,11 @@ pub const fn huffman_from_lengths<const N: usize>(lengths: &[BitLen; N]) -> [(Co
 /* HUFFMAN TABLE */
 
 /* ZST to index Htable */
-pub struct LL; // Literal & Lengths
-pub struct Distance;
-pub struct CL; // Code Lengths
+struct LL; // Literal & Lengths
+struct Distance;
+struct CL; // Code Lengths
 
-pub trait Symbol {
+trait Symbol {
     const N: usize;
     type Lengths;
     type Table;
@@ -275,7 +275,7 @@ impl Symbol for CL {
 
 /* Code Lengths type */
 #[derive(Debug, Copy, Clone, PartialEq)]
-pub enum CLElem {
+enum CLElem {
     CL(u8),        // Represent code lengths of 0 - 15
     RPrevious(u8), // Repeat the previous code 3 - 6 times. (2 bits of length)
     RZeroS(u8),    // Repeat Zero code Small version. 3 - 10 times. (3 bits of length)
@@ -283,7 +283,7 @@ pub enum CLElem {
 }
 
 #[derive(Debug, Clone)]
-pub struct Htable {
+struct Htable {
     ll: <LL as Symbol>::Table,
     distance: <Distance as Symbol>::Table,
 }
@@ -303,7 +303,7 @@ impl Index<Distance> for Htable {
 }
 
 impl LL {
-    pub fn huffman_code_for(len: u16) -> (Code, BitLen, ExtraBits) {
+    fn huffman_code_for(len: u16) -> (Code, BitLen, ExtraBits) {
         assert!(len >= 3 && len <= 258);
 
         if len <= 10 {
@@ -325,7 +325,7 @@ impl LL {
 }
 
 impl Distance {
-    pub fn huffman_code_for(dist: u16) -> (Code, BitLen, ExtraBits) {
+    fn huffman_code_for(dist: u16) -> (Code, BitLen, ExtraBits) {
         assert!(dist >= 1 && dist <= 32768);
 
         if dist <= 4 {
@@ -342,7 +342,7 @@ impl Distance {
 }
 
 impl Htable {
-    pub fn from_stream(stream: &[LzssElem]) -> Self {
+    fn from_stream(stream: &[LzssElem]) -> Self {
         // last element of stream must be EOB marker
         assert!(
             stream.iter().rposition(|e| *e == LzssElem::EOB) == Some(stream.len() - 1),
@@ -375,7 +375,7 @@ impl Htable {
     }
 
     // (elements, HLIT, HDIST)
-    pub fn encode(&self) -> (Vec<CLElem>, u8, u8) {
+    fn encode(&self) -> (Vec<CLElem>, u8, u8) {
         const CL_ZERO_MAX: usize = 138;
         const CL_REPEAT_MAX: usize = 6;
 
@@ -443,7 +443,7 @@ impl Htable {
 }
 
 impl CL {
-    pub fn generate_huffman_code(stream: &[CLElem]) -> <Self as Symbol>::Table {
+    fn generate_huffman_code(stream: &[CLElem]) -> <Self as Symbol>::Table {
         let mut freqs: [Frequency; Self::N] = [0; Self::N];
 
         for &e in stream {
@@ -460,7 +460,7 @@ impl CL {
 }
 
 // CONTAINS REVERSED CODES
-pub static FIXED_CODES: Htable = {
+static FIXED_CODES: Htable = {
     let mut ll: <LL as Symbol>::Lengths = [0; 288];
     let distance: <Distance as Symbol>::Lengths = [5; 32];
     let mut i: usize = 0;
@@ -488,13 +488,13 @@ pub static FIXED_CODES: Htable = {
 };
 
 /* DEFLATE ENCODER */
-pub struct Encoder<W: io::Write> {
+struct Encoder<W: io::Write> {
     w: BitWriter<W, LittleEndian>,
 }
 
 #[repr(u8)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum BlockType {
+enum BlockType {
     Stored = 0b00,
     Fixed = 0b01,
     Dynamic = 0b10,
@@ -506,19 +506,19 @@ struct HuffmanBlock<'w, 't, W: io::Write> {
 }
 
 impl<W: io::Write> Encoder<W> {
-    pub fn new(w: W) -> Self {
+    fn new(w: W) -> Self {
         Encoder {
             w: BitWriter::endian(w, LittleEndian),
         }
     }
 
     /* PUBLIC INTERFACE */
-    pub fn fixed_block(&mut self, is_final: bool, stream: &[LzssElem]) -> io::Result<()> {
+    fn fixed_block(&mut self, is_final: bool, stream: &[LzssElem]) -> io::Result<()> {
         self.block_header(is_final, BlockType::Fixed)?;
         HuffmanBlock::new(&mut self.w, &FIXED_CODES).body(stream)
     }
 
-    pub fn dynamic_block(&mut self, is_final: bool, stream: &[LzssElem]) -> io::Result<()> {
+    fn dynamic_block(&mut self, is_final: bool, stream: &[LzssElem]) -> io::Result<()> {
         self.block_header(is_final, BlockType::Dynamic)?;
 
         let table = Htable::from_stream(stream);
@@ -528,7 +528,7 @@ impl<W: io::Write> Encoder<W> {
         writer.body(stream)
     }
 
-    pub fn finish(mut self) -> io::Result<W> {
+    fn finish(mut self) -> io::Result<W> {
         self.w.byte_align()?;
         Ok(self.w.into_writer())
     }
