@@ -117,17 +117,9 @@ fn zlib_roundtrip_corpus() {
 }
 
 #[test]
-fn deflate_fixed_block_roundtrip_corpus() {
-    for (name, data) in corpus() {
-        let enc = to_deflate_block_type1(&data);
-        check_raw(&format!("{name} (type 1)"), &data, &enc);
-    }
-}
-
-#[test]
 fn deflate_dynamic_block_roundtrip_corpus() {
     for (name, data) in corpus() {
-        let enc = to_deflate_block_type2(&data);
+        let enc = compress_chunk(&data, true);
         check_raw(&format!("{name} (type 2)"), &data, &enc);
     }
 }
@@ -152,8 +144,7 @@ fn deflate_all_block_types_roundtrip_random() {
     for _ in 0..25 {
         let n = r.below(500) as usize;
         let data: Vec<u8> = (0..n).map(|_| r.byte() % 8).collect();
-        check_raw("random/type1", &data, &to_deflate_block_type1(&data));
-        check_raw("random/type2", &data, &to_deflate_block_type2(&data));
+        check_raw("random/type2", &data, &compress_chunk(&data, true));
     }
 }
 

@@ -2,31 +2,45 @@ use bitstream_io::{BitWrite, BitWriter, LittleEndian};
 
 use std::{io, ops::Index};
 
+use rayon::prelude::*;
+
 use itertools::Itertools;
 
+static CHUNK: usize = 512 * 1024; // 512 KiB
+
 pub fn to_zlib(data: &[u8]) -> Vec<u8> {
-    let mut deflated = to_deflate_block_type2(data);
+    let n_chunks = data.len().div_ceil(CHUNK).max(1);
 
-    deflated.splice(0..0, [0x78, 0x01]); // push front zlib signature
-    deflated.extend_from_slice(&(adler32(data)).to_be_bytes()); // append adler32
+    let parts: Vec<Vec<u8>> = (0..n_chunks)
+        .into_par_iter()
+        .map(|i| {
+            let start = i * CHUNK;
+            let end = (start + CHUNK).min(data.len());
+            compress_chunk(&data[start..end], i + 1 == n_chunks)
+        })
+        .collect();
 
-    deflated
+    let mut out: Vec<u8> = Vec::with_capacity(2 + parts.iter().map(Vec::len).sum::<usize>() + 4);
+
+    out.extend_from_slice(&[0x78, 0x01]);
+    for p in &parts {
+        out.extend_from_slice(&p);
+    }
+    out.extend_from_slice(&adler32(data).to_be_bytes());
+
+    out
 }
 
-#[allow(dead_code)]
-fn to_deflate_block_type1(data: &[u8]) -> Vec<u8> {
-    let mut encoder = Encoder::new(Vec::<u8>::new());
+fn compress_chunk(data: &[u8], is_last: bool) -> Vec<u8> {
     let stream = apply_lzss(data);
 
-    encoder.fixed_block(true, &stream).unwrap();
-    encoder.finish().unwrap()
-}
-
-fn to_deflate_block_type2(data: &[u8]) -> Vec<u8> {
     let mut encoder = Encoder::new(Vec::<u8>::new());
-    let stream = apply_lzss(data);
 
-    encoder.dynamic_block(true, &stream).unwrap();
+    encoder.dynamic_block(is_last, &stream).unwrap();
+    if !is_last {
+        encoder.sync_flush().unwrap();
+    }
+
     encoder.finish().unwrap()
 }
 
@@ -529,6 +543,13 @@ impl<W: io::Write> Encoder<W> {
 
         writer.table()?;
         writer.body(stream)
+    }
+
+    fn sync_flush(&mut self) -> io::Result<()> {
+        self.block_header(false, BlockType::Stored)?;
+        self.w.byte_align()?;
+        self.w.write::<16, u16>(0)?;
+        self.w.write::<16, u16>(0xFFFF)
     }
 
     fn finish(mut self) -> io::Result<W> {
